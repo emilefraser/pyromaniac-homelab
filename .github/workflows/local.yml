@@ -24,4 +24,6 @@ jobs:
     steps:
       - name: Write file out to fs
         run: |
-          echo "testing self hosted runner" > test.txt7
+          pwd
+          echo "testing self hosted runner" > test.txt
+          ls
