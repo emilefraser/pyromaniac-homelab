@@ -1,0 +1,14 @@
+**/Chart.lock
+**/requirements.lock
+**/charts/
+*.pem
+
+.vscode
+.vscode/*
+.vscode/settings.json
+
+# ignores for local github actions tessting
+# Ignore environment file used for testing github workflows with act
+.env
+.secrets
+.vars
