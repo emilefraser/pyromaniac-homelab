@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 name: CI
 run-name: CI - ${{ github.ref_name }} - ${{ github.event_name }}
 # Controls when the action will run.
@@ -27,3 +28,34 @@ jobs:
           pwd
           echo "testing self hosted runner" > test.txt
           ls
+=======
+name: CI
+run-name: CI - ${{ github.ref_name }} - ${{ github.event_name }}
+# Controls when the action will run.
+
+on:
+  # Triggers the workflow on push events but only for the main branch
+  push:
+    paths:
+      - "src/**"
+      - ".github/workflows/**"
+
+    # push to main branch
+    branches:
+      - main
+
+  # manually trigger a workflow_dispatch event
+  workflow_dispatch:
+
+
+jobs:
+  test_selfhost:
+    name: Test Self Hosted
+    runs-on: [self-hosted, linux, X64]
+    steps:
+      - name: Write file out to fs
+        run: |
+          pwd
+          echo "testing self hosted runner" > test.txt
+          ls
+>>>>>>> 14e8710b8faafd10eba6be73316cac5c383310fe
