@@ -1,33 +1,12 @@
-variable "environment_code" {
+variable "environment" {
   type        = string
   description = "Environment to deploy to"
 
   validation {
     condition = contains([
-      "dev01",
-      "tst01",
-      "stg01",
-      "dmo01",
-      "prd01"
+      "dev",
     ], var.environment_code)
     error_message = "[environment_code] not part of accepted list"
-  }
-}
-
-variable "region_code" {
-  type        = string
-  description = "Region to deploy to"
-
-  validation {
-    condition = contains([
-      "aen01",
-      "aus01",
-      "cac01",
-      "neu01",
-      "wus01",
-      "wu301"
-    ], var.region_code)
-    error_message = "[region_code] not part of accepted list"
   }
 }
 
