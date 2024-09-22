@@ -1,0 +1,249 @@
+- name: install necessary packages
+  apt:
+    name: "{{ packages }}"
+    update_cache: true
+  vars:
+    packages:
+    - ufw
+    - unattended-upgrades
+    - tuned
+    - iperf3
+    - jq
+    - snapd
+    - bzip2
+    - restic
+    - intel-gpu-tools
+    - vnstat
+    - jnettop
+    - linux-generic-hwe-22.04
+    - nfs-common
+    - open-iscsi
+    
+  ignore_errors: true # sometimes apt is locked    
+
+- name: Add VLAN 4000
+  ansible.builtin.blockinfile:
+    path: /etc/netplan/01-netcfg.yaml
+    block: |
+      # For the vSwitch
+        vlans:
+            {{ cluster_nic }}:
+              id: 4000
+              link: {{ cluster_nic.split(".")[0] }}
+              mtu: 1400
+              addresses:
+                - {{ ansible_host }}/24
+                - fd00:10:0:42:0::{{ ansible_host.split(".")[3] }}/118
+              routes:
+                - to: "10.0.40.0/22"
+                  via: "10.0.42.1"
+                # Prevent leaking SMB requests towards service IPs
+                - to: "10.43.0.0/16"
+                  via: "10.0.42.1"   
+  notify: netplan apply
+  ignore_errors: true # some clusters don't have vlans
+                  
+- name: install yq via snap
+  snap:
+    name: yq
+  when: "inventory_hostname in groups['k3s_servers']"  
+  ignore_errors: true # sometimes snap has issues
+
+- name: Allow admin SSH sources to this host
+  ufw:
+    rule: allow
+    port: 22
+    proto: tcp
+    src: '{{ item }}'
+    state: enabled
+  loop: "{{ firewall.admin_source }}"
+
+- name: Allow port 5201 for occasional iperf testing (enable when necessary)
+  ufw:
+    rule: allow
+    port: 5201
+    proto: tcp
+    state: enabled
+
+- name: Allow any incoming traffic to the public IP for host-port exposed services
+  ufw:
+    direction: in
+    rule: "allow"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+  with_items:
+    - { port: "80", proto: "tcp" }  # traefik web
+    - { port: "443", proto: "tcp" } # traefik websecure
+
+- name: Allow any routed traffic on the cluster NIC
+  ufw:
+    # direction: in
+    rule: "allow"
+    route: true
+    interface_in: "{{ cluster_nic }}"
+
+- name: Allow any incoming traffic on the cluster NIC
+  ufw:
+    direction: in
+    rule: "allow"
+    interface: "{{ cluster_nic }}"    
+
+- name: Allow any incoming traffic to nginx-ingress-controller on the fairies from the Hetzner LB
+  ufw:
+    direction: in
+    rule: "allow"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    src: 10.0.40.3/32 # hetzner LB
+  with_items:
+    # - { port: "7000", proto: "tcp" }  # http
+    - { port: "7443", proto: "tcp" }  # https    
+  when:
+  - "inventory_hostname in groups['k3s_servers']"
+
+- name: Allow any incoming traffic from the cluster for host-network exposed services
+  ufw:
+    direction: in
+    rule: "allow"
+    src: "{{ pod_cidr_v4 }}"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+  with_items:
+    - { port: "10250", proto: "tcp" } # kubelet metrics
+    - { port: "10257", proto: "tcp" } # kube-controller metrics
+    - { port: "10259", proto: "tcp" } # kube-scheduler metrics
+    - { port: "2381", proto: "tcp" }  # k3s etcd
+    - { port: "9100", proto: "tcp" }  # node-exporter  
+    - { port: "6443", proto: "tcp" }  # k8s-api   
+    - { port: "3300", proto: "tcp" }  # ceph-mon
+    - { port: "6789", proto: "tcp" }  # ceph-mon
+    - { port: "9283", proto: "tcp" }  # ceph metrics
+    - { port: "6800:7300", proto: "tcp" }  # ceph (not sure what, but necessary for csi-provisioner)  
+    - { port: "8080", proto: "tcp" }  # kured
+    - { port: "7472", proto: "tcp" }  # metallb 
+    - { port: "4244", proto: "tcp" }  # hubble     
+
+- name: Determine public NIC name (step 1/2)
+  set_fact: 
+    cluster_nic_split: "{{ cluster_nic | split('.')}}" 
+
+- name: Determine public NIC name (step 2/2)
+  set_fact: 
+    public_nic: "{{ cluster_nic_split.0 }}"     
+
+- name: Drop any unexpected incoming traffic hitting the hetzner public nic ({{ public_nic }}) # (this is the case anyway, but we want to avoid unnecessary logging)
+  ufw:
+    direction: in
+    rule: "deny"
+    interface: "{{ public_nic }}"
+    log: "false"
+  when: public_nic not in "eth1" # NICs work differently in ci
+
+- name: Set tuned profile to throughput-performance
+  command: tuned-adm profile throughput-performance
+
+- name: Change various sysctl-settings
+  sysctl:
+    name: '{{ item.key }}'
+    value: '{{ item.value }}'
+    sysctl_set: yes
+    state: present
+    reload: yes
+    ignoreerrors: yes
+  with_dict: '{{ sysctl_config }}'
+
+- name: Disable swap for current session
+  command: swapoff -a
+  become: true
+
+- name: Disable swap permanently, persist reboots
+  replace:
+    path: /etc/fstab
+    regexp: '^(\s*)([^#\n]+\s+)(\w+\s+)swap(\s+.*)$'
+    replace: '#\1\2\3swap\4'
+    backup: yes  
+
+- name: Create a thin pool on vg0
+  community.general.lvol:
+    vg: vg0
+    thinpool: thinpool
+    size: 100%FREE  
+  when: 
+  - "inventory_hostname in groups['k3s_agents'] or inventory_hostname in groups['k3s_servers'] or inventory_hostname in groups['k3s_observability'] or inventory_hostname in groups['k3s_rangers'] or inventory_hostname in groups['k3s_hobbits']"
+  ignore_errors: true # so we can run it multiple times
+
+- name: copy scripts
+  copy:
+    src: "{{ item }}"
+    dest: /usr/local/bin/{{ item }}
+    mode: u+x
+  loop:
+    - smartmon_metrics.sh
+    - kill-unwanted-transcodes.sh
+
+- name: Install smartmontools
+  apt: pkg=smartmontools
+
+- name: Install lm-sensors
+  apt: pkg=lm-sensors  
+  
+- name: Ensure directory /var/lib/node-exporter/textfiles/ exists
+  file:
+     path: /var/lib/node-exporter/textfiles
+     state: directory    
+     
+- name: Expose smartmon metrics to node-exporter
+  cron:
+    name: "smartmon metrics"
+    minute: "*/5"
+    hour: "*"
+    job: "/usr/local/bin/smartmon_metrics.sh > /var/lib/node-exporter/textfiles/smart_metrics.prom && chmod 644 /var/lib/node-exporter/textfiles/smart_metrics.prom"
+
+- name: Add cron scripts to kill unwanted transcodes
+  cron:
+    name: "unwanted transcodes"
+    minute: "*"
+    hour: "*"
+    job: "/usr/local/bin/kill-unwanted-transcodes.sh"
+  when:
+  - "inventory_hostname in groups['k3s_elves']"
+
+- name: ignore irrelevant logs via rsyslog
+  copy:
+    src: ignore-irrelevant-logs.conf
+    dest: /etc/rsyslog.d/ignore-irrelevant-logs.conf
+
+- name: update logrotate.conf 
+  copy:
+    src: logrotate.conf
+    dest: /etc/logrotate.conf
+
+- name: ensure resolveconf systemd directory exists
+  file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+
+- name: add cluster DNS to /etc/systemd/resolved.conf.d/dns_servers.conf
+  copy:
+    dest: /etc/systemd/resolved.conf.d/dns_servers.conf
+    content: |
+      [Resolve]
+      DNS=10.43.0.10
+      Domains=svc.cluster.local
+
+- name: restart systemd-resolved
+  systemd:
+    name: systemd-resolved
+    state: restarted
+    enabled: yes
+
+- name: restart rsyslog
+  systemd:
+    name: rsyslog
+    state: restarted
+    enabled: yes
+
+# - name: remove HWE kernel
+#   shell: |
+#     apt remove -y --purge linux-generic-hwe-22.04
+#     apt remove -y --purge linux-hwe-* linux-modules-6* linux-modules-6* linux-modules-6*

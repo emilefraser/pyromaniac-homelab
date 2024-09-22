@@ -1,0 +1,41 @@
+VIRTUALizATION
+**************
+nvme0n1p1 - internal nmve 1TB - os and vm images (300/700gb)
+also temp locations for dl bwfore movibg to COLD STORAGD
+
+
+COLD STORAGE
+*********"""""""""""
+sda - removable hub 4tb - downloaded content - dir 
+
+BACKUPS
+******************
+sdb - 1tb ext ssd - ??? (block storage) - zfs 
+
+PLATFORM (id=platform)
+*************************
+sdc - removable 128gb flash - iso images, container templates, snippets - dir - ext4 = templates
+Created symlink /etc/systemd/system/multi-user.target.wants/mnt-pve-platform.mount -> /etc/systemd/system/mnt-pve-platform.mount.
+/mnt/pve/platform
+ 
+
+HOT/CACHE STORAGE
+********************
+sdd - external nmve - nfs 256gb - cache for in (dl) / out (stream) - nfs
+
+
+
+
+
+
+LOGGING
+**********†*************
+sdh - removable 128gb flash - zfs
+
+TRABSFER???? Code repo
+***************************
+sdi - removale flash silver 128 - zfs 
+
+
+sdc and sdh = zfs pool
+sdi = backusp

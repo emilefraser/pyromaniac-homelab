@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/bin/bash-
 
 
-Description	    Plugin type	Level	Shared	    Snapshots   Stable
+Description	Plugin type Level	Shared  Snapshots   Stable
 ZFS (local)     zfspool     both        no      yes         yes
 Directory       dir         file        no      no          yes
 NFS             nfs         file        yes     no          yes
@@ -12,6 +12,78 @@ CephFS          cephfs      file        yes     yes         yes
 LVM             lvm         block       no      no          yes
 LVM-thin        lvmthin     block       no      yes         yes
 Ceph/RBD        rbd         block       yes     yes         yes
+
+Content type		Subdir
+VM images		images/<VMID>/
+ISO images		template/iso/
+Disk images
+Container templates	template/cache/
+Backup files		dump/
+Snippets		snippets/
+ 
+
+Proxmox VE can use local directories or locally mounted shares for storage. A directory is a file level storage, so you can store any content type like virtual disk images, containers, templates, ISO images or backup files.
+
+You can mount additional storages via standard linux /etc/fstab, and then define a directory storage for that mount point.
+
+Config File (/etc/pve/storage/cfg)
+
+
+dir: backup
+        path /mnt/backup
+        content backup
+        prune-backups keep-last=7
+        max-protected-backups 3
+        content-dirs backup=custom/backup/dir
+
+
+#### Add storage (NVMe as NFS)
+
+# Install the NFS server package on the Proxmox server:
+sudo apt install nfs-kernel-server 
+
+# Create a directory on the Proxmox server to share:
+sudo mkdir /mnt/nfs-share 
+
+# Format the new NVMe drive:
+sudo mkfs.ext4 /dev/nvme0n1 
+
+#Mount the new NVMe drive to the shared directory:
+sudo mount /dev/nvme0n1 /mnt/nfs-share 
+
+#Edit the NFS exports file:
+sudo nano /etc/exports 
+
+#Add the following line to the end of the file:
+/mnt/nfs-share *(rw,sync,no_subtree_check) 
+
+Save and close the file.
+
+Restart the NFS server:
+sudo service nfs-kernel-server restart 
+
+
+#### Remove dangling storage (Backups directory storage
+
+# Find the name of mount under servcies (mnt-pve-backups.mount)
+cd /etc/systemd/system
+ls
+
+
+# stop the service 
+systemctl stop mnt-pve-backups.mount
+systemctl disable mnt-pve-backups.mount
+rm mnt-pve-backups.mount
+systemctl daemon-reload
+systemctl reset-failed
+
+# move image iso path 
+
+current path = var/lib/vz/template/iso
+
+
+
+
 
 # resize root
 lvdisplay
@@ -24,8 +96,6 @@ lvresize -l +100%FREE /dev/pve/root
 # Resize pve-root file system
 resize2fs /dev/mapper/pve-root
 lvconvert --type thin-pool pve/data
-
-
 
 cat etc/pve/storage.cfg
 pvesm path <VOLUME_ID>
@@ -63,7 +133,6 @@ pvesm alloc local <VMID> '' 4G
 pvesm free <VOLUME_ID>
 
 #List storage status
-
 pvesm status
 #List storage contents
 
@@ -81,27 +150,6 @@ pvesm list <STORAGE_ID> --content vztmpl
 
 pvesm path <VOLUME_ID>
 
-
-Content type	Subdir
-VM images
-
-images/<VMID>/
-
-ISO images
-
-template/iso/
-
-Container templates
-
-template/cache/
-
-Backup files
-
-dump/
-
-Snippets
-
-snippets/
 
 
 
