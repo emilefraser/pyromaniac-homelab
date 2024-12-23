@@ -1,0 +1,33 @@
+name: "Spawn runners"
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/spawn_runners.yaml', 'docker-compose.yaml']
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  spawn_runners:
+    # Delegate the job to the self hosted runner
+    # running on VM `GitHub Actions Runner Spawner`
+    runs-on: [self-hosted]
+    name: Spawn runners
+    steps:
+      - uses: actions/checkout@v4
+      # Login to the container image registry
+      - name: Login to the image registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Spawn runners as containers
+      - name: Spawn runners in containers
+        env:
+          # Fine-Grained Personal Access Token with
+          # access to the repositories
+          PAT: ${{ secrets.SELF_HOSTED_RUNNERS_HOMELAB_PAT }}
+        run: docker compose up -d
