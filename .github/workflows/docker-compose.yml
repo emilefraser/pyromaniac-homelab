@@ -1,0 +1,21 @@
+services:
+  # Runner connected to the repository with the
+  # k3s terraform config
+  k3s_terraform_runner:
+    container_name: k3s-terraform-runner
+    image: ghcr.io/fredrickb/github-actions-self-hosted-runners:2.0.0
+    restart: always
+    environment:
+      - URL=<URL of repository holding k3s terraform config>
+      - NAME=k3s-terraform-runner
+      - PAT=${PAT}
+  # Runner connected to the repository with the
+  # k3s ansible playbook
+  k3s_ansible_runner:
+    container_name: k3s-ansible-runner
+    image: ghcr.io/fredrickb/github-actions-self-hosted-runners:2.0.0
+    restart: always
+    environment:
+      - URL=<URL of repository holding k3s ansible playbook>
+      - NAME=k3s-ansible-runner
+      - PAT=${PAT}
